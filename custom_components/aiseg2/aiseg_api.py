@@ -53,7 +53,12 @@ class AisegAPI:
     async def _fetch_current_consumption(self):
         response = await self._execute_request("/page/electricflow/111")
         root = html.fromstring(response.content)
-        return root.xpath("/html/body/div[2]/div/div[4]/div[2]/div[2]/div[2]/text()")[0]
+        return root.xpath('//div[@id="u_capacity"]')[0].text
+
+    async def _fetch_current_production(self):
+        response = await self._execute_request("/page/electricflow/111")
+        root = html.fromstring(response.content)
+        return root.xpath('//div[@id="g_capacity"]')[0].text
 
     async def authenticate(self) -> bool:
         """Test if we can authenticate with the host."""
@@ -84,6 +89,7 @@ class AisegAPI:
             },
             "power": {
                 "current_consumption": await self._fetch_current_consumption(),
+                "current_production": await self._fetch_current_production(),
             },
         }
         return data
