@@ -1,0 +1,14 @@
+{
+  "domain": "aiseg2",
+  "name": "Aiseg2 Home Assistant",
+  "codeowners": ["@GuillaumeLe"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://www.home-assistant.io/integrations/aiseg2",
+  "homekit": {},
+  "iot_class": "local_polling",
+  "requirements": ["lxml"],
+  "ssdp": [],
+  "zeroconf": [],
+  "version": "0.0.1"
+}
