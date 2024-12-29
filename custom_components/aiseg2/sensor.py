@@ -96,6 +96,7 @@ class PowerSensor(CoordinatorEntity, SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._attr_native_value = self.coordinator.data["power"][self.idx]
+        self.async_write_ha_state()
 
 
 class EnergySensor(CoordinatorEntity, SensorEntity):
@@ -130,3 +131,4 @@ class EnergySensor(CoordinatorEntity, SensorEntity):
         """Handle updated data from the coordinator."""
         self._attr_native_value = self.coordinator.data["energy"][self.idx]
         self._attr_last_reset = self._get_today_start_time()
+        self.async_write_ha_state()

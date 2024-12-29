@@ -75,7 +75,7 @@ class AisegAPI:
 
     async def fetch_data(self, entities):
         """Fetch data."""
-        return {
+        data = {
             "energy": {
                 "today_electricity_usage": await self._fetch_today_electricity_usage(),
                 "today_electricity_grid_consumption": await self._fetch_today_electricity_grid_consumption(),
@@ -86,6 +86,7 @@ class AisegAPI:
                 "current_consumption": await self._fetch_current_consumption(),
             },
         }
+        return data
 
 
 class AisegDevice:
