@@ -88,6 +88,7 @@ class PowerSensor(CoordinatorEntity, SensorEntity):
         """Pass coordinator to CoordinatorEntity."""
         super().__init__(coordinator, context=idx)
         self.idx = idx
+        self._attr_unique_id = idx
         self._attr_device_info = device_info
         self._attr_name = idx
         self._attr_native_value = initial_value
