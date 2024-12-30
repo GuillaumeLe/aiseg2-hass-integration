@@ -62,6 +62,18 @@ resourceScrapingConfigs: dict[AisegResourceKey, ResourceScrapingConfig] = {
 }
 
 
+class ApiAuthError(Exception):
+    """Authentication failed."""
+
+
+class ApiError(Exception):
+    """Other API error."""
+
+
+class ScrapingError(Exception):
+    """Issue with scraping API response."""
+
+
 class AisegAPI:
     """API object to interact with Aiseg."""
 
@@ -74,7 +86,7 @@ class AisegAPI:
     async def _execute_request(self, path):
         url = "http://" + self.host + path
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
+        resp = await loop.run_in_executor(
             None,
             functools.partial(
                 requests.get,
@@ -83,14 +95,24 @@ class AisegAPI:
                 timeout=1000,
             ),
         )
+        if resp.status_code == 401:
+            raise ApiAuthError
+        if resp.status_code != 200:
+            raise ApiError
+        return resp
 
     async def fetch_resource(self, config: ResourceScrapingConfig):
         """Fetch resource value from config."""
         response = await self._execute_request(config.path)
-        root = html.fromstring(response.content)
-        return root.xpath(config.xpath).pop()
+        try:
+            root = html.fromstring(response.content)
+            return root.xpath(config.xpath).pop()
+        except Exception as err:
+            raise ScrapingError from err
 
-    async def _fetch_notification_enabled(self):
+    async def fetch_notification_enabled(self):
+        """Fetch notification enable switch status. TODO refactor."""
+
         response = await self._execute_request("/page/setting/installation/73f2")
         root = html.fromstring(response.content)
         if len(root.xpath('//div[contains(@class,"radio_on")][@id="radio_1"]')) > 0:
@@ -102,7 +124,7 @@ class AisegAPI:
     async def authenticate(self) -> bool:
         """Test if we can authenticate with the host."""
         response = await self._execute_request("/")
-        return response.status_code
+        return response.status_code == 200
 
     async def get_device(self):
         """Get device information."""
@@ -134,19 +156,21 @@ class AisegAPI:
                 self,
             ),
             AisegPowerSensor(AisegResourceKey.CURRENT_CONSUMPTION, self),
+            AisegPowerSensor(AisegResourceKey.CURRENT_PRODUCTION, self),
             AisegSwitch(AisegResourceKey.NOTIFICATION_ENABLED, self),
         ]
-        for item in data:
-            await item.update()
+        await asyncio.gather(*[item.update() for item in data])
         return data
 
 
-class AisegSensor(ABC, AisegAPI):
+class AisegSensor(ABC):
     """Abstract class to instanciate sensor."""
+
+    type = None
 
     def __init__(self, key: AisegResourceKey, api: AisegAPI) -> None:
         """Initialize."""
-        super().__init__(api.host, api.username, api.password)
+        self.api = api
         self.key = key
         self.value = None
 
@@ -160,7 +184,7 @@ class AisegSensor(ABC, AisegAPI):
 
     async def update(self):
         """Update sensor value."""
-        self.value = await self.fetch_resource(resourceScrapingConfigs[self.key])
+        self.value = await self.api.fetch_resource(resourceScrapingConfigs[self.key])
         return self.value
 
 
@@ -184,7 +208,7 @@ class AisegSwitch(AisegSensor):
 
     async def update(self):
         """Update sensor value."""
-        self.value = await self._fetch_notification_enabled()
+        self.value = await self.api.fetch_notification_enabled()
         return self.value
 
 

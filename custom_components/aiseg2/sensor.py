@@ -17,7 +17,6 @@ from homeassistant.util.dt import async_get_time_zone
 
 from . import AisegConfigEntry
 from .aiseg_api import AisegEntityType
-from .const import DOMAIN
 from .coordinator import AisegPoolingCoordinator
 
 
@@ -40,38 +39,15 @@ async def async_setup_entry(
     #
     tz = await async_get_time_zone(hass.config.time_zone)
     await coordinator.async_config_entry_first_refresh()
-    if coordinator.getDevice() is not None:
-        device_info = {
-            "name": coordinator.getDevice().name,
-            "identifiers": {(DOMAIN, coordinator.getDevice().device_id)},
-            "manufacturer": coordinator.getDevice().manufacturer,
-        }
-    else:
-        device_info = {}
-    energy_entities = []
-    power_entities = []
-    for item in coordinator.data:
-        match item.type:
-            case AisegEntityType.ENERGY:
-                energy_entities.append(
-                    EnergySensor(
-                        coordinator,
-                        item.getKey(),
-                        item.getValue(),
-                        device_info,
-                        tz,
-                    )
-                )
-            case AisegEntityType.POWER:
-                power_entities.append(
-                    PowerSensor(
-                        coordinator,
-                        item.getKey(),
-                        item.getValue(),
-                        device_info,
-                    )
-                )
-
+    device_info = coordinator.getDeviceInfo()
+    energy_entities = [
+        EnergySensor(coordinator, item.getKey(), item.getValue(), device_info, tz)
+        for item in coordinator.data.getByType(AisegEntityType.ENERGY)
+    ]
+    power_entities = [
+        PowerSensor(coordinator, item.getKey(), item.getValue(), device_info)
+        for item in coordinator.data.getByType(AisegEntityType.POWER)
+    ]
     async_add_entities(energy_entities)
     async_add_entities(power_entities)
 
@@ -85,7 +61,9 @@ class PowerSensor(CoordinatorEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_value = 0
 
-    def __init__(self, coordinator, idx, initial_value, device_info) -> None:
+    def __init__(
+        self, coordinator: AisegPoolingCoordinator, idx, initial_value, device_info
+    ) -> None:
         """Pass coordinator to CoordinatorEntity."""
         super().__init__(coordinator, context=idx)
         self.idx = idx
@@ -94,13 +72,16 @@ class PowerSensor(CoordinatorEntity, SensorEntity):
         self._attr_name = idx
         self._attr_native_value = initial_value
 
+    @property
+    def translation_key(self):
+        return self._attr_name
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        for item in self.coordinator.data:
-            if item.getKey() == self.idx:
-                self._attr_native_value = item.getValue()
-                self.async_write_ha_state()
+        item = self.coordinator.data.get(self.idx)
+        self._attr_native_value = item.getValue()
+        self.async_write_ha_state()
 
 
 class EnergySensor(CoordinatorEntity, SensorEntity):
@@ -119,7 +100,9 @@ class EnergySensor(CoordinatorEntity, SensorEntity):
             .astimezone(self.tz)
         )
 
-    def __init__(self, coordinator, idx, initial_value, device_info, tz) -> None:
+    def __init__(
+        self, coordinator: AisegPoolingCoordinator, idx, initial_value, device_info, tz
+    ) -> None:
         """Pass coordinator to CoordinatorEntity."""
         super().__init__(coordinator, context=idx)
         self.tz = tz
@@ -130,11 +113,14 @@ class EnergySensor(CoordinatorEntity, SensorEntity):
         self._attr_native_value = initial_value
         self._attr_last_reset = self._get_today_start_time()
 
+    @property
+    def translation_key(self):
+        return self._attr_name
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        for item in self.coordinator.data:
-            if item.getKey() == self.idx:
-                self._attr_native_value = item.getValue()
-                self._attr_last_reset = self._get_today_start_time()
-                self.async_write_ha_state()
+        item = self.coordinator.data.get(self.idx)
+        self._attr_native_value = item.getValue()
+        self._attr_last_reset = self._get_today_start_time()
+        self.async_write_ha_state()
