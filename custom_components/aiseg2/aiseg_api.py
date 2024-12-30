@@ -1,11 +1,61 @@
 """API utilities for Panasonic Aiseg."""
 
+from abc import ABC
 import asyncio
+from enum import StrEnum
 import functools
 
 from lxml import html
 import requests
 from requests.auth import HTTPDigestAuth
+
+
+class AisegEntityType(StrEnum):
+    """Enum class for entity types."""
+
+    ENERGY = "energy"
+    POWER = "power"
+    SWITCH = "switch"
+
+
+class AisegResourceKey(StrEnum):
+    """Enum class for resources keys."""
+
+    TODAY_ELECTRICITY_USAGE = "today_electricity_usage"
+    TODAY_ELECTRICITY_GRID_CONSUMPTION = "today_electricity_grid_consumption"
+    TODAY_ELECTRICITY_RETURN_TO_GRID = "today_electricity_return_to_grid"
+    TODAY_ELECTRICITY_PRODUCTION = "today_electricity_production"
+    CURRENT_CONSUMPTION = "current_consumption"
+    NOTIFICATION_ENABLED = "notification_enabled"
+
+
+class ResourceScrapingConfig:
+    """Helper class to define scraping config for a ressource."""
+
+    def __init__(self, path: str, xpath: str) -> None:
+        """Initialize."""
+        self.path = path
+        self.xpath = xpath
+
+
+resourceScrapingConfigs: dict[AisegResourceKey, ResourceScrapingConfig] = {
+    AisegResourceKey.CURRENT_CONSUMPTION: ResourceScrapingConfig(
+        "/page/electricflow/111",
+        "/html/body/div[2]/div/div[4]/div[2]/div[2]/div[2]/text()",
+    ),
+    AisegResourceKey.TODAY_ELECTRICITY_GRID_CONSUMPTION: ResourceScrapingConfig(
+        "/page/graph/53111", '//span[@id="val_kwh"]/text()'
+    ),
+    AisegResourceKey.TODAY_ELECTRICITY_PRODUCTION: ResourceScrapingConfig(
+        "/page/graph/51111", '//span[@id="val_kwh"]/text()'
+    ),
+    AisegResourceKey.TODAY_ELECTRICITY_USAGE: ResourceScrapingConfig(
+        "/page/graph/52111", '//span[@id="val_kwh"]/text()'
+    ),
+    AisegResourceKey.TODAY_ELECTRICITY_RETURN_TO_GRID: ResourceScrapingConfig(
+        "/page/graph/54111", '//span[@id="val_kwh"]/text()'
+    ),
+}
 
 
 class AisegAPI:
@@ -30,30 +80,20 @@ class AisegAPI:
             ),
         )
 
-    async def _fetch_today_electricity_usage(self):
-        response = await self._execute_request("/page/graph/52111")
+    async def fetch_resource(self, config: ResourceScrapingConfig):
+        """Fetch resource value from config."""
+        response = await self._execute_request(config.path)
         root = html.fromstring(response.content)
-        return root.xpath('//span[@id="val_kwh"]')[0].text
+        return root.xpath(config.xpath).pop()
 
-    async def _fetch_today_electricity_grid_consumption(self):
-        response = await self._execute_request("/page/graph/53111")
+    async def _fetch_notification_enabled(self):
+        response = await self._execute_request("/page/setting/installation/73f2")
         root = html.fromstring(response.content)
-        return root.xpath('//span[@id="val_kwh"]')[0].text
-
-    async def _fetch_today_electricity_return_to_grid(self):
-        response = await self._execute_request("/page/graph/54111")
-        root = html.fromstring(response.content)
-        return root.xpath('//span[@id="val_kwh"]')[0].text
-
-    async def _fetch_today_electricity_production(self):
-        response = await self._execute_request("/page/graph/51111")
-        root = html.fromstring(response.content)
-        return root.xpath('//span[@id="val_kwh"]')[0].text
-
-    async def _fetch_current_consumption(self):
-        response = await self._execute_request("/page/electricflow/111")
-        root = html.fromstring(response.content)
-        return root.xpath("/html/body/div[2]/div/div[4]/div[2]/div[2]/div[2]/text()")[0]
+        if len(root.xpath('//div[contains(@class,"radio_on")][@id="radio_1"]')) > 0:
+            return False
+        if len(root.xpath('//div[contains(@class,"radio_on")][@id="radio_2"]')) > 0:
+            return True
+        return False
 
     async def authenticate(self) -> bool:
         """Test if we can authenticate with the host."""
@@ -73,20 +113,75 @@ class AisegAPI:
         device_id = 42
         return AisegDevice(name, device_id)
 
-    async def fetch_data(self, entities):
+    async def fetch_data(self):
         """Fetch data."""
-        data = {
-            "energy": {
-                "today_electricity_usage": await self._fetch_today_electricity_usage(),
-                "today_electricity_grid_consumption": await self._fetch_today_electricity_grid_consumption(),
-                "today_electricity_return_to_grid": await self._fetch_today_electricity_return_to_grid(),
-                "today_electricity_production": await self._fetch_today_electricity_production(),
-            },
-            "power": {
-                "current_consumption": await self._fetch_current_consumption(),
-            },
-        }
+        data: list[AisegSensor] = [
+            AisegEnergySensor(AisegResourceKey.TODAY_ELECTRICITY_USAGE, self),
+            AisegEnergySensor(
+                AisegResourceKey.TODAY_ELECTRICITY_GRID_CONSUMPTION,
+                self,
+            ),
+            AisegEnergySensor(
+                AisegResourceKey.TODAY_ELECTRICITY_RETURN_TO_GRID,
+                self,
+            ),
+            AisegEnergySensor(
+                AisegResourceKey.TODAY_ELECTRICITY_PRODUCTION,
+                self,
+            ),
+            AisegPowerSensor(AisegResourceKey.CURRENT_CONSUMPTION, self),
+            AisegSwitch(AisegResourceKey.NOTIFICATION_ENABLED, self),
+        ]
+        for item in data:
+            await item.update()
         return data
+
+
+class AisegSensor(ABC, AisegAPI):
+    """Abstract class to instanciate sensor."""
+
+    def __init__(self, key: AisegResourceKey, api: AisegAPI) -> None:
+        """Initialize."""
+        super().__init__(api.host, api.username, api.password)
+        self.key = key
+        self.value = None
+
+    def getValue(self):
+        """Get sensor value."""
+        return self.value
+
+    def getKey(self) -> str:
+        """Get sensor key."""
+        return self.key
+
+    async def update(self):
+        """Update sensor value."""
+        self.value = await self.fetch_resource(resourceScrapingConfigs[self.key])
+        return self.value
+
+
+class AisegEnergySensor(AisegSensor):
+    """Implementation of the AisegSensor class for energy sensors."""
+
+    type = AisegEntityType.ENERGY
+    time_range = "day"
+
+
+class AisegPowerSensor(AisegSensor):
+    """Implementation of the AisegSensor class for power sensors."""
+
+    type = AisegEntityType.POWER
+
+
+class AisegSwitch(AisegSensor):
+    """Implementation of the AisegSensor class for configuration switches."""
+
+    type = AisegEntityType.SWITCH
+
+    async def update(self):
+        """Update sensor value."""
+        self.value = await self._fetch_notification_enabled()
+        return self.value
 
 
 class AisegDevice:

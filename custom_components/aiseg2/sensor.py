@@ -16,6 +16,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.dt import async_get_time_zone
 
 from . import AisegConfigEntry
+from .aiseg_api import AisegEntityType
 from .const import DOMAIN
 from .coordinator import AisegPoolingCoordinator
 
@@ -49,24 +50,24 @@ async def async_setup_entry(
         device_info = {}
     energy_entities = []
     power_entities = []
-    for measure_type in coordinator.data:
-        for measure in coordinator.data[measure_type]:
-            if measure_type == "energy":
+    for item in coordinator.data:
+        match item.type:
+            case AisegEntityType.ENERGY:
                 energy_entities.append(
                     EnergySensor(
                         coordinator,
-                        measure,
-                        coordinator.data[measure_type][measure],
+                        item.getKey(),
+                        item.getValue(),
                         device_info,
                         tz,
                     )
                 )
-            elif measure_type == "power":
+            case AisegEntityType.POWER:
                 power_entities.append(
                     PowerSensor(
                         coordinator,
-                        measure,
-                        coordinator.data[measure_type][measure],
+                        item.getKey(),
+                        item.getValue(),
                         device_info,
                     )
                 )
@@ -96,8 +97,10 @@ class PowerSensor(CoordinatorEntity, SensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        self._attr_native_value = self.coordinator.data["power"][self.idx]
-        self.async_write_ha_state()
+        for item in self.coordinator.data:
+            if item.getKey() == self.idx:
+                self._attr_native_value = item.getValue()
+                self.async_write_ha_state()
 
 
 class EnergySensor(CoordinatorEntity, SensorEntity):
@@ -130,6 +133,8 @@ class EnergySensor(CoordinatorEntity, SensorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        self._attr_native_value = self.coordinator.data["energy"][self.idx]
-        self._attr_last_reset = self._get_today_start_time()
-        self.async_write_ha_state()
+        for item in self.coordinator.data:
+            if item.getKey() == self.idx:
+                self._attr_native_value = item.getValue()
+                self._attr_last_reset = self._get_today_start_time()
+                self.async_write_ha_state()

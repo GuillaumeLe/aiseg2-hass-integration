@@ -15,7 +15,9 @@ _LOGGER = logging.getLogger(__name__)
 class AisegPoolingCoordinator(DataUpdateCoordinator):
     """My custom coordinator."""
 
-    def __init__(self, hass: HomeAssistant, my_api: aiseg_api.AisegAPI) -> None:
+    def __init__(
+        self, hass: HomeAssistant, my_api: aiseg_api.AisegAPI, update_interval: int = 30
+    ) -> None:
         """Initialize my coordinator."""
         super().__init__(
             hass,
@@ -23,11 +25,11 @@ class AisegPoolingCoordinator(DataUpdateCoordinator):
             # Name of the data. For logging purposes.
             name="Aiseg energy",
             # Polling interval. Will only be polled if there are subscribers.
-            update_interval=timedelta(seconds=10),
+            update_interval=timedelta(seconds=update_interval),
             # Set always_update to `False` if the data returned from the
             # api can be compared via `__eq__` to avoid duplicate updates
             # being dispatched to listeners
-            always_update=False,
+            always_update=True,
         )
         self.my_api = my_api
         self._device: aiseg_api.AisegDevice | None = None
@@ -61,7 +63,13 @@ class AisegPoolingCoordinator(DataUpdateCoordinator):
                 # Note: using context is not required if there is no need or ability to limit
                 # data retrieved from API.
                 listening_idx = set(self.async_contexts())
-                return await self.my_api.fetch_data(listening_idx)
+                if self.data is None or len(self.data) == 0:
+                    return await self.my_api.fetch_data()
+                for item in self.data:
+                    if item.getKey() in listening_idx:
+                        await item.update()
+                return self.data
+
         # except ApiAuthError as err:
         #     # Raising ConfigEntryAuthFailed will cancel future updates
         #     # and start a config flow with SOURCE_REAUTH (async_step_reauth)
