@@ -26,6 +26,7 @@ class AisegResourceKey(StrEnum):
     TODAY_ELECTRICITY_RETURN_TO_GRID = "today_electricity_return_to_grid"
     TODAY_ELECTRICITY_PRODUCTION = "today_electricity_production"
     CURRENT_CONSUMPTION = "current_consumption"
+    CURRENT_PRODUCTION = "current_production"
     NOTIFICATION_ENABLED = "notification_enabled"
 
 
@@ -40,8 +41,10 @@ class ResourceScrapingConfig:
 
 resourceScrapingConfigs: dict[AisegResourceKey, ResourceScrapingConfig] = {
     AisegResourceKey.CURRENT_CONSUMPTION: ResourceScrapingConfig(
-        "/page/electricflow/111",
-        "/html/body/div[2]/div/div[4]/div[2]/div[2]/div[2]/text()",
+        "/page/electricflow/111", '//div[@id="u_capacity"]/text()',
+    ),
+    AisegResouceKey.CURRENT_PRODUCTION: ResourceScrapingConfig(
+      "/page/electricflow/111", '//div[@id="g_capacity"]/text()'
     ),
     AisegResourceKey.TODAY_ELECTRICITY_GRID_CONSUMPTION: ResourceScrapingConfig(
         "/page/graph/53111", '//span[@id="val_kwh"]/text()'
