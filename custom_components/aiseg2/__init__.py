@@ -12,7 +12,7 @@ from . import aiseg_api
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SWITCH]
 
 
 type AisegConfigEntry = ConfigEntry[aiseg_api.AisegAPI]  # noqa: F821
