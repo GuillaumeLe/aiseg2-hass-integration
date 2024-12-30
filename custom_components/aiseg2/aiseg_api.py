@@ -41,10 +41,11 @@ class ResourceScrapingConfig:
 
 resourceScrapingConfigs: dict[AisegResourceKey, ResourceScrapingConfig] = {
     AisegResourceKey.CURRENT_CONSUMPTION: ResourceScrapingConfig(
-        "/page/electricflow/111", '//div[@id="u_capacity"]/text()',
+        "/page/electricflow/111",
+        '//div[@id="u_capacity"]/text()',
     ),
-    AisegResouceKey.CURRENT_PRODUCTION: ResourceScrapingConfig(
-      "/page/electricflow/111", '//div[@id="g_capacity"]/text()'
+    AisegResourceKey.CURRENT_PRODUCTION: ResourceScrapingConfig(
+        "/page/electricflow/111", '//div[@id="g_capacity"]/text()'
     ),
     AisegResourceKey.TODAY_ELECTRICITY_GRID_CONSUMPTION: ResourceScrapingConfig(
         "/page/graph/53111", '//span[@id="val_kwh"]/text()'
