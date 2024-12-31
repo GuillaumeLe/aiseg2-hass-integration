@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -10,14 +10,15 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import UnitOfEnergy, UnitOfPower
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util.dt import async_get_time_zone
 
 from . import AisegConfigEntry
-from .aiseg_api import AisegEntityType
-from .coordinator import AisegPoolingCoordinator
+from .aiseg_api import AisegEnergySensor, AisegEntityType, AisegPowerSensor
+from .const import DOMAIN
+
+SCAN_INTERVAL = timedelta(seconds=30)
 
 
 async def async_setup_entry(
@@ -27,7 +28,6 @@ async def async_setup_entry(
 ) -> None:
     """Config entry example."""
     my_api = entry.runtime_data
-    coordinator = AisegPoolingCoordinator(hass, my_api)
 
     # Fetch initial data so we have data when entities subscribe
     #
@@ -38,21 +38,30 @@ async def async_setup_entry(
     # coordinator.async_refresh() instead
     #
     tz = await async_get_time_zone(hass.config.time_zone)
-    await coordinator.async_config_entry_first_refresh()
-    device_info = coordinator.getDeviceInfo()
+    data = await my_api.fetch_data()
+    device = await my_api.get_device()
+    if device is not None:
+        device_info = {
+            "name": device.name,
+            "identifiers": {(DOMAIN, device.device_id)},
+            "manufacturer": device.manufacturer,
+        }
+    else:
+        device_info = {}
+
     energy_entities = [
-        EnergySensor(coordinator, item.getKey(), item.getValue(), device_info, tz)
-        for item in coordinator.data.getByType(AisegEntityType.ENERGY)
+        EnergySensor(item, item.getKey(), item.getValue(), device_info, tz)
+        for item in filter(lambda datum: datum.type == AisegEntityType.ENERGY, data)
     ]
     power_entities = [
-        PowerSensor(coordinator, item.getKey(), item.getValue(), device_info)
-        for item in coordinator.data.getByType(AisegEntityType.POWER)
+        PowerSensor(item, item.getKey(), item.getValue(), device_info)
+        for item in filter(lambda datum: datum.type == AisegEntityType.POWER, data)
     ]
     async_add_entities(energy_entities)
     async_add_entities(power_entities)
 
 
-class PowerSensor(CoordinatorEntity, SensorEntity):
+class PowerSensor(SensorEntity):
     """Representation of a Sensor."""
 
     _attr_name = "Power"
@@ -62,11 +71,11 @@ class PowerSensor(CoordinatorEntity, SensorEntity):
     _attr_native_value = 0
 
     def __init__(
-        self, coordinator: AisegPoolingCoordinator, idx, initial_value, device_info
+        self, sensor: AisegPowerSensor, idx, initial_value, device_info
     ) -> None:
         """Pass coordinator to CoordinatorEntity."""
-        super().__init__(coordinator, context=idx)
         self.idx = idx
+        self.sensor = sensor
         self._attr_unique_id = idx
         self._attr_device_info = device_info
         self._attr_name = idx
@@ -76,15 +85,12 @@ class PowerSensor(CoordinatorEntity, SensorEntity):
     def translation_key(self):
         return self._attr_name
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        item = self.coordinator.data.get(self.idx)
-        self._attr_native_value = item.getValue()
-        self.async_write_ha_state()
+    async def async_update(self) -> None:
+        """Update sensor value."""
+        self._attr_native_value = await self.sensor.update()
 
 
-class EnergySensor(CoordinatorEntity, SensorEntity):
+class EnergySensor(SensorEntity):
     """Representation of a Sensor."""
 
     _attr_name = "Energy"
@@ -101,12 +107,12 @@ class EnergySensor(CoordinatorEntity, SensorEntity):
         )
 
     def __init__(
-        self, coordinator: AisegPoolingCoordinator, idx, initial_value, device_info, tz
+        self, sensor: AisegEnergySensor, idx, initial_value, device_info, tz
     ) -> None:
         """Pass coordinator to CoordinatorEntity."""
-        super().__init__(coordinator, context=idx)
         self.tz = tz
         self.idx = idx
+        self.sensor = sensor
         self._attr_unique_id = idx
         self._attr_device_info = device_info
         self._attr_name = idx
@@ -117,10 +123,7 @@ class EnergySensor(CoordinatorEntity, SensorEntity):
     def translation_key(self):
         return self._attr_name
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        item = self.coordinator.data.get(self.idx)
-        self._attr_native_value = item.getValue()
+    async def async_update(self) -> None:
+        """Update sensor value."""
+        self._attr_native_value = await self.sensor.update()
         self._attr_last_reset = self._get_today_start_time()
-        self.async_write_ha_state()
